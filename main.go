@@ -394,6 +394,7 @@ func main() {
 	kingpin.Parse()
 
 	log.SetLevel(logLevels[*logLevel])
+	log.SetFormatter(&log.JSONFormatter{})
 
 	if *indexTxtPath == "" {
 		*indexTxtPath = *easyrsaDirPath + "/pki/index.txt"
