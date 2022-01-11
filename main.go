@@ -323,7 +323,7 @@ func (oAdmin *OvpnAdmin) userApplyCcdHandler(w http.ResponseWriter, r *http.Requ
 
 	err := json.NewDecoder(r.Body).Decode(&ccd)
 	if err != nil {
-		log.Println(err)
+		log.Errorln(err)
 	}
 
 	ccdApplied, applyStatus := oAdmin.modifyCcd(ccd)
@@ -340,7 +340,7 @@ func (oAdmin *OvpnAdmin) userApplyCcdHandler(w http.ResponseWriter, r *http.Requ
 func (oAdmin *OvpnAdmin) serverSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	enabledModules, enabledModulesErr := json.Marshal(oAdmin.modules)
 	if enabledModulesErr != nil {
-		log.Printf("ERROR: %s\n", enabledModulesErr)
+		log.Errorln(enabledModulesErr)
 	}
 	fmt.Fprintf(w, `{"status":"ok", "serverRole": "%s", "modules": %s }`, oAdmin.role, string(enabledModules))
 }
@@ -553,7 +553,7 @@ func (oAdmin *OvpnAdmin) getClientConfigTemplate() *template.Template {
 	} else {
 		clientConfigTpl, clientConfigTplErr := oAdmin.templates.FindString("client.conf.tpl")
 		if clientConfigTplErr != nil {
-			log.Println("ERROR: clientConfigTpl not found in templates box")
+			log.Errorln("clientConfigTpl not found in templates box")
 		}
 		return template.Must(template.New("client-config").Parse(clientConfigTpl))
 	}
@@ -571,7 +571,17 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 			hosts = getOvpnServerHostsFromKubeApi()
 		}
 
-		log.Debugf("WARNING: hosts for %s\n %v", username, hosts)
+		externalHost := os.Getenv("EXTERNAL_HOST")
+		externalPort := os.Getenv("EXTERNAL_PORT")
+
+		if externalHost != "" {
+			hosts[0].Host = externalHost
+		}
+		if externalPort != "" {
+			hosts[0].Port = externalPort
+		}
+
+		log.Debugf("hosts for %s\n %v", username, hosts)
 
 		conf := openvpnClientConfig{}
 		conf.Hosts = hosts
@@ -606,7 +616,7 @@ func (oAdmin *OvpnAdmin) getCcdTemplate() *template.Template {
 	} else {
 		ccdTpl, ccdTplErr := oAdmin.templates.FindString("ccd.tpl")
 		if ccdTplErr != nil {
-			log.Printf("ERROR: ccdTpl not found in templates box")
+			log.Errorf("ccdTpl not found in templates box")
 		}
 		return template.Must(template.New("ccd").Parse(ccdTpl))
 	}
@@ -649,7 +659,7 @@ func (oAdmin *OvpnAdmin) modifyCcd(ccd Ccd) (bool, string) {
 			var tmp bytes.Buffer
 			tplErr := t.Execute(&tmp, ccd)
 			if tplErr != nil {
-				log.Println(tplErr)
+				log.Errorln(tplErr)
 			}
 			fWrite(*ccdDir+"/"+ccd.User, tmp.String())
 			return true, "ccd updated successfully"
@@ -666,7 +676,7 @@ func validateCcd(ccd Ccd) (bool, string) {
 	if ccd.ClientAddress != "dynamic" {
 		_, ovpnNet, err := net.ParseCIDR(*openvpnNetwork)
 		if err != nil {
-			log.Println(err)
+			log.Errorln(err)
 		}
 
 		if !checkStaticAddressIsFree(ccd.ClientAddress, ccd.User) {
@@ -797,7 +807,7 @@ func (oAdmin *OvpnAdmin) usersList() []OpenvpnClient {
 	otherCerts := totalCerts - validCerts - revokedCerts - expiredCerts
 
 	if otherCerts != 0 {
-		log.Printf("WARNING: there are %d otherCerts\n", otherCerts)
+		log.Warnf("there are %d otherCerts\n", otherCerts)
 	}
 
 	ovpnClientsTotal.Set(float64(totalCerts))
