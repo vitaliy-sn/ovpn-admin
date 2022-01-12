@@ -900,9 +900,10 @@ func (oAdmin *OvpnAdmin) userRevoke(username string) string {
 	if checkUserExist(username) {
 		// check certificate valid flag 'V'
 		o := runBash(fmt.Sprintf("date +%%Y-%%m-%%d\\ %%H:%%M:%%S && cd %s && echo yes | easyrsa revoke %s && easyrsa gen-crl", *easyrsaDirPath, username))
+		log.Debug(o)
 		if *authByPassword {
 			o = runBash(fmt.Sprintf("openvpn-user revoke --db-path %s --user %s", *authDatabase, username))
-			//fmt.Println(o)
+			//log.Debug(o)
 		}
 
 		crlFix()
