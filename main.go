@@ -596,7 +596,7 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 		t := oAdmin.getClientConfigTemplate()
 
 		var tmp bytes.Buffer
-		err := t.Execute(&tmp, conf)
+		err = t.Execute(&tmp, conf)
 		if err != nil {
 			log.Errorf("ERROR: something goes wrong during rendering config for %s\n", username)
 			log.Debugf("DEBUG: rendering config for %s failed with error %v\n", username, err)
