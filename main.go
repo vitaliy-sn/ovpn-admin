@@ -567,8 +567,10 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 			parts := strings.SplitN(server, ":", 3)
 			hosts = append(hosts, OpenvpnServer{Host: parts[0], Port: parts[1], Protocol: parts[2]})
 		}
-		if *openvpnServerBehindLB {
-			hosts = getOvpnServerHostsFromKubeApi()
+
+		hostsFromKubeApi, err := getOvpnServerHostsFromKubeApi()
+		if *openvpnServerBehindLB && err == nil {
+			hosts = hostsFromKubeApi
 		}
 
 		externalHost := os.Getenv("EXTERNAL_HOST")
@@ -1150,7 +1152,7 @@ func (oAdmin *OvpnAdmin) syncWithMaster() {
 	}
 }
 
-func getOvpnServerHostsFromKubeApi() []OpenvpnServer {
+func getOvpnServerHostsFromKubeApi() ([]OpenvpnServer, error) {
 	var hosts []OpenvpnServer
 	var lbHost string
 
@@ -1167,6 +1169,7 @@ func getOvpnServerHostsFromKubeApi() []OpenvpnServer {
 	service, err := clientset.CoreV1().Services(fRead(kubeNamespaceFilePath)).Get(context.TODO(), *openvpnServiceName, metav1.GetOptions{})
 	if err != nil {
 		log.Errorf("ERROR: %s\n", err.Error())
+		return nil, err
 	}
 
 	log.Debugf("Debug: service from kube api %v\n", service)
@@ -1181,7 +1184,7 @@ func getOvpnServerHostsFromKubeApi() []OpenvpnServer {
 	}
 	hosts = append(hosts, OpenvpnServer{lbHost, strconv.Itoa(int(service.Spec.Ports[0].Port)), strings.ToLower(string(service.Spec.Ports[0].Protocol))})
 
-	return hosts
+	return hosts, nil
 }
 
 func getOvpnCaCertExpireDate() time.Time {
