@@ -67,6 +67,7 @@ var (
 	authByPassword           = kingpin.Flag("auth.password", "enable additional password authentication").Default("false").Envar("OVPN_AUTH").Bool()
 	authDatabase             = kingpin.Flag("auth.db", "database path for password authentication").Default("./easyrsa/pki/users.db").Envar("OVPN_AUTH_DB_PATH").String()
 	logLevel                 = kingpin.Flag("log.level", "set log level (debug, info, warn, error)").Default("info").Envar("LOG_LEVEL").String()
+	kubernetesBackend        = kingpin.Flag("kubernetes.backend", "use kubernetes secrets for store certificates").Bool()
 
 	certsArchivePath = "/tmp/" + certsArchiveFileName
 	ccdArchivePath   = "/tmp/" + ccdArchiveFileName
@@ -389,12 +390,18 @@ func (oAdmin *OvpnAdmin) downloadCcdHandler(w http.ResponseWriter, r *http.Reque
 	http.ServeFile(w, r, ccdArchivePath)
 }
 
+var app OpenVPNPKI
+
 func main() {
 	kingpin.Version(version)
 	kingpin.Parse()
 
 	log.SetLevel(logLevels[*logLevel])
 	log.SetFormatter(&log.JSONFormatter{})
+
+	if *kubernetesBackend {
+		_ = app.run()
+	}
 
 	if *indexTxtPath == "" {
 		*indexTxtPath = *easyrsaDirPath + "/pki/index.txt"
@@ -568,9 +575,13 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 			hosts = append(hosts, OpenvpnServer{Host: parts[0], Port: parts[1], Protocol: parts[2]})
 		}
 
-		hostsFromKubeApi, err := getOvpnServerHostsFromKubeApi()
-		if *openvpnServerBehindLB && err == nil {
-			hosts = hostsFromKubeApi
+
+		if *openvpnServerBehindLB {
+			var err error
+			hosts, err = getOvpnServerHostsFromKubeApi()
+			if err != nil {
+				log.Error(err)
+			}
 		}
 
 		externalHost := os.Getenv("EXTERNAL_HOST")
@@ -587,16 +598,25 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 
 		conf := openvpnClientConfig{}
 		conf.Hosts = hosts
-		conf.CA = fRead(*easyrsaDirPath + "/pki/ca.crt")
-		conf.Cert = fRead(*easyrsaDirPath + "/pki/issued/" + username + ".crt")
-		conf.Key = fRead(*easyrsaDirPath + "/pki/private/" + username + ".key")
-		conf.TLS = fRead(*easyrsaDirPath + "/pki/ta.key")
+		if *kubernetesBackend {
+			conf.CA = app.easyrsaGetCACert()
+			clientCert := app.easyrsaGetClientCert(username)
+			conf.Cert = clientCert.CertPEM.String()
+			conf.Key = clientCert.PrivKeyPEM.String()
+			//	TODO ta.key
+		} else {
+			conf.CA = fRead(*easyrsaDirPath + "/pki/ca.crt")
+			conf.Cert = fRead(*easyrsaDirPath + "/pki/issued/" + username + ".crt")
+			conf.Key = fRead(*easyrsaDirPath + "/pki/private/" + username + ".key")
+			conf.TLS = fRead(*easyrsaDirPath + "/pki/ta.key")
+		}
+
 		conf.PasswdAuth = *authByPassword
 
 		t := oAdmin.getClientConfigTemplate()
 
 		var tmp bytes.Buffer
-		err = t.Execute(&tmp, conf)
+		err := t.Execute(&tmp, conf)
 		if err != nil {
 			log.Errorf("ERROR: something goes wrong during rendering config for %s\n", username)
 			log.Debugf("DEBUG: rendering config for %s failed with error %v\n", username, err)
@@ -752,7 +772,18 @@ func validatePassword(password string) bool {
 }
 
 func checkUserExist(username string) bool {
-	for _, u := range indexTxtParser(fRead(*indexTxtPath)) {
+	var indexTxt string
+	if *kubernetesBackend {
+		var err error
+		indexTxt, err = app.secretGetIndexTxt()
+		if err != nil {
+			log.Error(err)
+		}
+	} else {
+		indexTxt = fRead(*indexTxtPath)
+	}
+
+	for _, u := range indexTxtParser(indexTxt) {
 		if u.DistinguishedName == ("/CN=" + username) {
 			return true
 		}
@@ -770,7 +801,18 @@ func (oAdmin *OvpnAdmin) usersList() []OpenvpnClient {
 	connectedUsers := 0
 	apochNow := time.Now().Unix()
 
-	for _, line := range indexTxtParser(fRead(*indexTxtPath)) {
+	var indexTxt string
+	if *kubernetesBackend {
+		var err error
+		indexTxt, err = app.secretGetIndexTxt()
+		if err != nil {
+			log.Error(err)
+		}
+	} else {
+		indexTxt = fRead(*indexTxtPath)
+	}
+
+	for _, line := range indexTxtParser(indexTxt) {
 		if line.Identity != "server" {
 			totalCerts += 1
 			ovpnClient := OpenvpnClient{Identity: line.Identity, ExpirationDate: parseDateToString(indexTxtDateLayout, line.ExpirationDate, stringDateFormat)}
@@ -843,11 +885,19 @@ func (oAdmin *OvpnAdmin) userCreate(username, password string) (bool, string) {
 		}
 	}
 
-	o := runBash(fmt.Sprintf("date +%%Y-%%m-%%d\\ %%H:%%M:%%S && cd %s && easyrsa build-client-full %s nopass", *easyrsaDirPath, username))
-	log.Println(o)
+	if *kubernetesBackend {
+		err := app.easyrsaBuildClient(username)
+		if err != nil {
+			log.Error(err)
+		}
+	} else {
+		o := runBash(fmt.Sprintf("date +%%Y-%%m-%%d\\ %%H:%%M:%%S && cd %s && easyrsa build-client-full %s nopass", *easyrsaDirPath, username))
+		log.Println(o)
+	}
+
 
 	if *authByPassword {
-		o = runBash(fmt.Sprintf("openvpn-user create --db.path %s --user %s --password %s", *authDatabase, username, password))
+		o := runBash(fmt.Sprintf("openvpn-user create --db.path %s --user %s --password %s", *authDatabase, username, password))
 		log.Println(o)
 	}
 
@@ -897,13 +947,22 @@ func (oAdmin *OvpnAdmin) getUserStatistic(username string) clientStatus {
 }
 
 func (oAdmin *OvpnAdmin) userRevoke(username string) string {
+	var shellOut string
 	if checkUserExist(username) {
 		// check certificate valid flag 'V'
-		o := runBash(fmt.Sprintf("date +%%Y-%%m-%%d\\ %%H:%%M:%%S && cd %s && echo yes | easyrsa revoke %s && easyrsa gen-crl", *easyrsaDirPath, username))
-		log.Debug(o)
+		if *kubernetesBackend {
+			err := app.easyrsaRevoke(username)
+			if err != nil {
+				log.Error(err)
+			}
+		} else {
+			shellOut = runBash(fmt.Sprintf("date +%%Y-%%m-%%d\\ %%H:%%M:%%S && cd %s && echo yes | easyrsa revoke %s && easyrsa gen-crl", *easyrsaDirPath, username))
+			log.Debug(shellOut)
+		}
+
 		if *authByPassword {
-			o = runBash(fmt.Sprintf("openvpn-user revoke --db-path %s --user %s", *authDatabase, username))
-			//log.Debug(o)
+			shellOut = runBash(fmt.Sprintf("openvpn-user revoke --db-path %s --user %s", *authDatabase, username))
+			//log.Debug(shellOut)
 		}
 
 		crlFix()
@@ -913,7 +972,7 @@ func (oAdmin *OvpnAdmin) userRevoke(username string) string {
 			log.Infof("Session for user \"%s\" session killed\n", username)
 		}
 		oAdmin.clients = oAdmin.usersList()
-		return fmt.Sprintln(o)
+		return fmt.Sprintln(shellOut)
 	}
 	log.Infof("User \"%s\" not found\n", username)
 	return fmt.Sprintf("User \"%s\" not found", username)
@@ -921,38 +980,45 @@ func (oAdmin *OvpnAdmin) userRevoke(username string) string {
 
 func (oAdmin *OvpnAdmin) userUnrevoke(username string) string {
 	if checkUserExist(username) {
-		// check certificate revoked flag 'R'
-		usersFromIndexTxt := indexTxtParser(fRead(*indexTxtPath))
-		for i := range usersFromIndexTxt {
-			if usersFromIndexTxt[i].DistinguishedName == ("/CN=" + username) {
-				if usersFromIndexTxt[i].Flag == "R" {
-					usersFromIndexTxt[i].Flag = "V"
-					usersFromIndexTxt[i].RevocationDate = ""
-					o := runBash(fmt.Sprintf("cd %s && cp pki/revoked/certs_by_serial/%s.crt pki/issued/%s.crt", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, username))
-					//fmt.Println(o)
-					o = runBash(fmt.Sprintf("cd %s && cp pki/revoked/certs_by_serial/%s.crt pki/certs_by_serial/%s.pem", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, usersFromIndexTxt[i].SerialNumber))
-					//fmt.Println(o)
-					o = runBash(fmt.Sprintf("cd %s && cp pki/revoked/private_by_serial/%s.key pki/private/%s.key", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, username))
-					//fmt.Println(o)
-					o = runBash(fmt.Sprintf("cd %s && cp pki/revoked/reqs_by_serial/%s.req pki/reqs/%s.req", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, username))
-					//fmt.Println(o)
-					fWrite(*indexTxtPath, renderIndexTxt(usersFromIndexTxt))
-					//fmt.Print(renderIndexTxt(usersFromIndexTxt))
-					o = runBash(fmt.Sprintf("cd %s && easyrsa gen-crl", *easyrsaDirPath))
-					//fmt.Println(o)
-					if *authByPassword {
-						o = runBash(fmt.Sprintf("openvpn-user restore --db-path %s --user %s", *authDatabase, username))
+		if *kubernetesBackend {
+			err := app.easyrsaUnrevoke(username)
+			if err != nil {
+				log.Error(err)
+			}
+		} else {
+			// check certificate revoked flag 'R'
+			usersFromIndexTxt := indexTxtParser(fRead(*indexTxtPath))
+			for i := range usersFromIndexTxt {
+				if usersFromIndexTxt[i].DistinguishedName == ("/CN=" + username) {
+					if usersFromIndexTxt[i].Flag == "R" {
+						usersFromIndexTxt[i].Flag = "V"
+						usersFromIndexTxt[i].RevocationDate = ""
+						o := runBash(fmt.Sprintf("cd %s && cp pki/revoked/certs_by_serial/%s.crt pki/issued/%s.crt", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, username))
 						//fmt.Println(o)
+						o = runBash(fmt.Sprintf("cd %s && cp pki/revoked/certs_by_serial/%s.crt pki/certs_by_serial/%s.pem", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, usersFromIndexTxt[i].SerialNumber))
+						//fmt.Println(o)
+						o = runBash(fmt.Sprintf("cd %s && cp pki/revoked/private_by_serial/%s.key pki/private/%s.key", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, username))
+						//fmt.Println(o)
+						o = runBash(fmt.Sprintf("cd %s && cp pki/revoked/reqs_by_serial/%s.req pki/reqs/%s.req", *easyrsaDirPath, usersFromIndexTxt[i].SerialNumber, username))
+						//fmt.Println(o)
+						fWrite(*indexTxtPath, renderIndexTxt(usersFromIndexTxt))
+						//fmt.Print(renderIndexTxt(usersFromIndexTxt))
+						o = runBash(fmt.Sprintf("cd %s && easyrsa gen-crl", *easyrsaDirPath))
+						//fmt.Println(o)
+						if *authByPassword {
+							o = runBash(fmt.Sprintf("openvpn-user restore --db-path %s --user %s", *authDatabase, username))
+							//fmt.Println(o)
+						}
+						crlFix()
+						o = ""
+						fmt.Println(o)
+						break
 					}
-					crlFix()
-					o = ""
-					fmt.Println(o)
-					break
 				}
 			}
+			fWrite(*indexTxtPath, renderIndexTxt(usersFromIndexTxt))
+			fmt.Print(renderIndexTxt(usersFromIndexTxt))
 		}
-		fWrite(*indexTxtPath, renderIndexTxt(usersFromIndexTxt))
-		fmt.Print(renderIndexTxt(usersFromIndexTxt))
 		crlFix()
 		oAdmin.clients = oAdmin.usersList()
 		return fmt.Sprintf("{\"msg\":\"User %s successfully unrevoked\"}", username)
@@ -1189,6 +1255,10 @@ func getOvpnServerHostsFromKubeApi() ([]OpenvpnServer, error) {
 }
 
 func getOvpnCaCertExpireDate() time.Time {
+	if *kubernetesBackend {
+		return app.CACert.NotAfter
+	}
+
 	caCertPath := *easyrsaDirPath + "/pki/ca.crt"
 	caCertExpireDate := runBash(fmt.Sprintf("openssl x509 -in %s -noout -enddate | awk -F \"=\" {'print $2'}", caCertPath))
 
