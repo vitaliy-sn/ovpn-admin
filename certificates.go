@@ -61,9 +61,9 @@ type ClientSecret struct {
 }
 
 type RevokedCert struct {
-	RevokedTime time.Time `json:"revokedTime"`
-	CommonName  string    `json:"commonName"`
-	Serial      string    `json:"serial"`
+	RevokedTime time.Time         `json:"revokedTime"`
+	CommonName  string            `json:"commonName"`
+	Cert        *x509.Certificate `json:"cert"`
 }
 
 func (openVPNPKI *OpenVPNPKI) run() (err error) {
@@ -81,6 +81,12 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 	if err != nil {
 		log.Error(err)
 	}
+
+	err = openVPNPKI.easyrsaBuildClient("qwe")
+	if err != nil {
+		log.Error(err)
+	}
+
 	err = openVPNPKI.indexTxtUpdate()
 	if err != nil {
 		log.Error(err)
@@ -96,6 +102,10 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 	txt, _ := openVPNPKI.secretGetIndexTxt()
 
 	fmt.Println(txt)
+
+	_ = openVPNPKI.easyrsaRevoke("qwe")
+	_ = openVPNPKI.easyrsaGenCRL()
+
 
 	return
 }
@@ -144,7 +154,13 @@ func (openVPNPKI *OpenVPNPKI) indexTxtUpdate() (err error) {
 		StringData: data,
 		Type:       v1.SecretTypeOpaque,
 	}
-	_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Create(context.TODO(), secret, metav1.CreateOptions{})
+
+	if res, _ := openVPNPKI.checkSecretExist(secretIndexTxt); !res {
+		_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Create(context.TODO(), secret, metav1.CreateOptions{})
+	} else {
+		_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Update(context.TODO(), secret, metav1.UpdateOptions{})
+	}
+
 	return
 }
 
@@ -159,11 +175,15 @@ func (openVPNPKI *OpenVPNPKI) easyrsaGenCRL() (err error) {
 		return
 	}
 
-	var revoked []*x509.Certificate
+	var revoked []*RevokedCert
 
 	for _, secret := range secrets {
 		if secret.Annotations["revokedAt"] != "" {
-			revoked = append(revoked, secret.ClientCert.Cert)
+			revokedAt, err := time.Parse(indexTxtDateFormat, secret.Annotations["revokedAt"])
+			if err != nil {
+				log.Warning(err)
+			}
+			revoked = append(revoked, &RevokedCert{RevokedTime: revokedAt, Cert: secret.ClientCert.Cert})
 		}
 	}
 
@@ -177,9 +197,13 @@ func (openVPNPKI *OpenVPNPKI) easyrsaGenCRL() (err error) {
 	}
 
 	err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretCRL}, secretData)
-	if err != nil {
-		return
+
+	if res, _ := openVPNPKI.checkSecretExist(secretCRL); !res {
+		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretCRL}, secretData)
+	} else {
+		err = openVPNPKI.secretUpdate(metav1.ObjectMeta{Name: secretCRL}, secretData)
 	}
+
 	return
 }
 
@@ -220,6 +244,96 @@ func (openVPNPKI *OpenVPNPKI) easyrsaBuildClient(commonName string) (err error) 
 	if err != nil {
 		return
 	}
+
+	err = openVPNPKI.indexTxtUpdate()
+
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) easyrsaGetCACert() string {
+	return openVPNPKI.CACertPEM.String()
+}
+
+func (openVPNPKI *OpenVPNPKI) easyrsaGetClientCert(commonName string) (cert ClientCert) {
+	clients, err := openVPNPKI.secretGetClients()
+	if err != nil {
+		log.Error(err)
+	}
+
+	var serialNumber string
+	for _, client := range clients {
+		if client.Annotations["commonName"] == commonName {
+			serialNumber = client.ClientCert.Cert.SerialNumber.String()
+			break
+		}
+	}
+
+	cert, err = openVPNPKI.secretClientCertGet(fmt.Sprintf(secretClientTmpl, serialNumber))
+	if err != nil {
+		log.Error(err)
+	}
+
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) easyrsaRevoke(commonName string) (err error) {
+	clients, err := openVPNPKI.secretGetClients()
+
+	var serialNumber string
+	for _, client := range clients {
+		if client.Annotations["commonName"] == commonName {
+			serialNumber = client.ClientCert.Cert.SerialNumber.String()
+			break
+		}
+	}
+
+	secret, err := openVPNPKI.secretGet(fmt.Sprintf(secretClientTmpl, serialNumber))
+	if err != nil {
+		return
+	}
+
+	if secret.Annotations["revokedAt"] != "" {
+		log.Warnf("User \"%s\" already revoked\n", commonName)
+		return
+	}
+
+	secret.Annotations["revokedAt"] = time.Now().Format(indexTxtDateFormat)
+
+	_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Update(context.TODO(), secret, metav1.UpdateOptions{})
+	if err != nil {
+		return
+	}
+
+	err = openVPNPKI.indexTxtUpdate()
+
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) easyrsaUnrevoke(commonName string) (err error) {
+	clients, err := openVPNPKI.secretGetClients()
+
+	var serialNumber string
+	for _, client := range clients {
+		if client.Annotations["commonName"] == commonName {
+			serialNumber = client.ClientCert.Cert.SerialNumber.String()
+			break
+		}
+	}
+
+	secret, err := openVPNPKI.secretGet(fmt.Sprintf(secretClientTmpl, serialNumber))
+	if err != nil {
+		return
+	}
+
+	secret.Annotations["revokedAt"] = ""
+
+	_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Update(context.TODO(), secret, metav1.UpdateOptions{})
+	if err != nil {
+		return
+	}
+
+	err = openVPNPKI.indexTxtUpdate()
+
 	return
 }
 
@@ -230,7 +344,7 @@ func (openVPNPKI *OpenVPNPKI) initKubeClient() (err error) {
 }
 
 func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
-	if openVPNPKI.checkSecretExist(secretPKI) {
+	if res, _ := openVPNPKI.checkSecretExist(secretPKI); res {
 		cert, err := openVPNPKI.secretClientCertGet(secretPKI)
 		if err != nil {
 			return err
@@ -264,7 +378,7 @@ func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
 		}
 	}
 
-	if openVPNPKI.checkSecretExist(secretServer) {
+	if res, _ := openVPNPKI.checkSecretExist(secretServer); res {
 		cert, err := openVPNPKI.secretClientCertGet(secretServer)
 		if err != nil {
 			return err
@@ -317,13 +431,13 @@ func (openVPNPKI *OpenVPNPKI) checkUserExist(commonName string) bool {
 	return false
 }
 
-func (openVPNPKI *OpenVPNPKI) checkSecretExist(name string) bool {
-	_, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+func (openVPNPKI *OpenVPNPKI) checkSecretExist(name string) (bool, string) {
+	secret, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		log.Debug(err)
-		return false
+		return false, ""
 	}
-	return true
+	return true, secret.ResourceVersion
 }
 
 func (openVPNPKI *OpenVPNPKI) secretCreate(objectMeta metav1.ObjectMeta, data map[string]string) (err error) {
@@ -340,10 +454,10 @@ func (openVPNPKI *OpenVPNPKI) secretCreate(objectMeta metav1.ObjectMeta, data ma
 	return
 }
 
-func (openVPNPKI *OpenVPNPKI) secretUpdate(name string, data map[string]string) (err error) {
+func (openVPNPKI *OpenVPNPKI) secretUpdate(objectMeta metav1.ObjectMeta, data map[string]string) (err error) {
 	secret := &v1.Secret{
 		TypeMeta:   metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		ObjectMeta: objectMeta,
 		StringData: data,
 		Type:       v1.SecretTypeOpaque,
 	}
@@ -537,11 +651,11 @@ func genClientCert(privKey, caPrivKey *rsa.PrivateKey, ca *x509.Certificate, cn 
 }
 
 // return PEM encoded CRL
-func genCRL(certs []*x509.Certificate, ca *x509.Certificate, caKey *rsa.PrivateKey) (crlPEM *bytes.Buffer, err error) {
+func genCRL(certs []*RevokedCert, ca *x509.Certificate, caKey *rsa.PrivateKey) (crlPEM *bytes.Buffer, err error) {
 	var revokedCertificates []pkix.RevokedCertificate
 	// TODO store RevocationTime somewhere
 	for _, cert := range certs {
-		revokedCertificates = append(revokedCertificates, pkix.RevokedCertificate{SerialNumber: cert.SerialNumber, RevocationTime: time.Now()})
+		revokedCertificates = append(revokedCertificates, pkix.RevokedCertificate{SerialNumber: cert.Cert.SerialNumber, RevocationTime: cert.RevokedTime})
 	}
 	revocationList := &x509.RevocationList{
 		//SignatureAlgorithm: x509.SHA256WithRSA,
