@@ -30,13 +30,14 @@ const (
 	secretCRL        = "openvpn-pki-crl"
 	secretIndexTxt   = "openvpn-pki-index-txt"
 	secretDHandTA    = "openvpn-dh-and-ta"
-	namespace        = "default"
 	certFileName     = "pem.crt"
 	privKeyFileName  = "pem.key"
 )
 
 //<year><month><day><hour><minute><second>Z
 const indexTxtDateFormat = "060102150405Z"
+
+var namespace = "default"
 
 type OpenVPNPKI struct {
 	CAPrivKeyRSA     *rsa.PrivateKey
@@ -71,6 +72,14 @@ type RevokedCert struct {
 }
 
 func (openVPNPKI *OpenVPNPKI) run() (err error) {
+	if _, err := os.Stat(kubeNamespaceFilePath); err == nil {
+		file, err := ioutil.ReadFile(kubeNamespaceFilePath)
+		if err != nil {
+			return
+		}
+		namespace = string(file)
+	}
+
 	err = openVPNPKI.initKubeClient()
 	if err != nil {
 		return
