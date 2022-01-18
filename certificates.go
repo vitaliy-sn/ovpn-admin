@@ -10,7 +10,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/big"
+	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -77,16 +79,6 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 		return
 	}
 
-	err = openVPNPKI.easyrsaBuildClient("asd")
-	if err != nil {
-		log.Error(err)
-	}
-
-	err = openVPNPKI.easyrsaBuildClient("qwe")
-	if err != nil {
-		log.Error(err)
-	}
-
 	err = openVPNPKI.indexTxtUpdate()
 	if err != nil {
 		log.Error(err)
@@ -97,24 +89,92 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 		log.Error(err)
 	}
 
-	log.Println(openVPNPKI.checkUserExist("asdzzz"))
-
-	txt, _ := openVPNPKI.secretGetIndexTxt()
-
-	fmt.Println(txt)
-
-	_ = openVPNPKI.easyrsaRevoke("qwe")
-	_ = openVPNPKI.easyrsaGenCRL()
-
+	err = openVPNPKI.updateFilesFromSecrets()
+	if err != nil {
+		log.Error(err)
+	}
 
 	return
 }
 
-// annotations:
-//   commonName: client
-//   createdAt: <datetime>
-//   revokedAt: <datetime>
-//   serial: 1234567890ABCDEF
+func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
+	if res, _ := openVPNPKI.checkSecretExist(secretPKI); res {
+		cert, err := openVPNPKI.secretClientCertGet(secretPKI)
+		if err != nil {
+			return err
+		}
+
+		openVPNPKI.CAPrivKeyPEM = cert.PrivKeyPEM
+		openVPNPKI.CAPrivKeyRSA = cert.PrivKeyRSA
+		openVPNPKI.CACertPEM = cert.CertPEM
+		openVPNPKI.CACert = cert.Cert
+	} else {
+		openVPNPKI.CAPrivKeyPEM, err = genPrivKey()
+		if err != nil {
+			return
+		}
+		openVPNPKI.CAPrivKeyRSA, err = decodePrivKey(openVPNPKI.CAPrivKeyPEM.Bytes())
+
+		openVPNPKI.CACertPEM, _ = genCA(openVPNPKI.CAPrivKeyRSA)
+		openVPNPKI.CACert, err = decodeCert(openVPNPKI.CACertPEM.Bytes())
+		if err != nil {
+			return
+		}
+
+		secretData := map[string]string{
+			certFileName:    openVPNPKI.CACertPEM.String(),
+			privKeyFileName: openVPNPKI.CAPrivKeyPEM.String(),
+		}
+
+		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretPKI}, secretData)
+		if err != nil {
+			return
+		}
+	}
+
+	if res, _ := openVPNPKI.checkSecretExist(secretServer); res {
+		cert, err := openVPNPKI.secretClientCertGet(secretServer)
+		if err != nil {
+			return err
+		}
+
+		openVPNPKI.ServerPrivKeyPEM = cert.PrivKeyPEM
+		openVPNPKI.ServerPrivKeyRSA = cert.PrivKeyRSA
+		openVPNPKI.ServerCertPEM = cert.CertPEM
+		openVPNPKI.ServerCert = cert.Cert
+	} else {
+		openVPNPKI.ServerPrivKeyPEM, err = genPrivKey()
+		if err != nil {
+			return
+		}
+
+		openVPNPKI.ServerPrivKeyRSA, err = decodePrivKey(openVPNPKI.ServerPrivKeyPEM.Bytes())
+		if err != nil {
+			return
+		}
+
+		openVPNPKI.ServerCertPEM, _ = genServerCert(openVPNPKI.ServerPrivKeyRSA, openVPNPKI.CAPrivKeyRSA, openVPNPKI.CACert, "server")
+		openVPNPKI.ServerCert, err = decodeCert(openVPNPKI.ServerCertPEM.Bytes())
+
+		secretData := map[string]string{
+			certFileName:    openVPNPKI.ServerCertPEM.String(),
+			privKeyFileName: openVPNPKI.ServerPrivKeyPEM.String(),
+		}
+
+		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretServer, Labels: map[string]string{"index": "txt", "usage": "serverAuth"}}, secretData)
+		if err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) initKubeClient() (err error) {
+	config, _ := rest.InClusterConfig()
+	openVPNPKI.KubeClient, err = kubernetes.NewForConfig(config)
+	return
+}
 
 func (openVPNPKI *OpenVPNPKI) secretGetIndexTxt() (indexTxt string, err error) {
 	secret, err := openVPNPKI.secretGet(secretIndexTxt)
@@ -333,85 +393,6 @@ func (openVPNPKI *OpenVPNPKI) easyrsaUnrevoke(commonName string) (err error) {
 	}
 
 	err = openVPNPKI.indexTxtUpdate()
-
-	return
-}
-
-func (openVPNPKI *OpenVPNPKI) initKubeClient() (err error) {
-	config, _ := rest.InClusterConfig()
-	openVPNPKI.KubeClient, err = kubernetes.NewForConfig(config)
-	return
-}
-
-func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
-	if res, _ := openVPNPKI.checkSecretExist(secretPKI); res {
-		cert, err := openVPNPKI.secretClientCertGet(secretPKI)
-		if err != nil {
-			return err
-		}
-
-		openVPNPKI.CAPrivKeyPEM = cert.PrivKeyPEM
-		openVPNPKI.CAPrivKeyRSA = cert.PrivKeyRSA
-		openVPNPKI.CACertPEM = cert.CertPEM
-		openVPNPKI.CACert = cert.Cert
-	} else {
-		openVPNPKI.CAPrivKeyPEM, err = genPrivKey()
-		if err != nil {
-			return
-		}
-		openVPNPKI.CAPrivKeyRSA, err = decodePrivKey(openVPNPKI.CAPrivKeyPEM.Bytes())
-
-		openVPNPKI.CACertPEM, _ = genCA(openVPNPKI.CAPrivKeyRSA)
-		openVPNPKI.CACert, err = decodeCert(openVPNPKI.CACertPEM.Bytes())
-		if err != nil {
-			return
-		}
-
-		secretData := map[string]string{
-			certFileName:    openVPNPKI.CACertPEM.String(),
-			privKeyFileName: openVPNPKI.CAPrivKeyPEM.String(),
-		}
-
-		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretPKI}, secretData)
-		if err != nil {
-			return
-		}
-	}
-
-	if res, _ := openVPNPKI.checkSecretExist(secretServer); res {
-		cert, err := openVPNPKI.secretClientCertGet(secretServer)
-		if err != nil {
-			return err
-		}
-
-		openVPNPKI.ServerPrivKeyPEM = cert.PrivKeyPEM
-		openVPNPKI.ServerPrivKeyRSA = cert.PrivKeyRSA
-		openVPNPKI.ServerCertPEM = cert.CertPEM
-		openVPNPKI.ServerCert = cert.Cert
-	} else {
-		openVPNPKI.ServerPrivKeyPEM, err = genPrivKey()
-		if err != nil {
-			return
-		}
-
-		openVPNPKI.ServerPrivKeyRSA, err = decodePrivKey(openVPNPKI.ServerPrivKeyPEM.Bytes())
-		if err != nil {
-			return
-		}
-
-		openVPNPKI.ServerCertPEM, _ = genServerCert(openVPNPKI.ServerPrivKeyRSA, openVPNPKI.CAPrivKeyRSA, openVPNPKI.CACert, "server")
-		openVPNPKI.ServerCert, err = decodeCert(openVPNPKI.ServerCertPEM.Bytes())
-
-		secretData := map[string]string{
-			certFileName:    openVPNPKI.ServerCertPEM.String(),
-			privKeyFileName: openVPNPKI.ServerPrivKeyPEM.String(),
-		}
-
-		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretServer, Labels: map[string]string{"index": "txt", "usage": "serverAuth"}}, secretData)
-		if err != nil {
-			return
-		}
-	}
 
 	return
 }
@@ -680,5 +661,45 @@ func genCRL(certs []*RevokedCert, ca *x509.Certificate, caKey *rsa.PrivateKey) (
 		return
 	}
 
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) updateFilesFromSecrets() (err error) {
+	ca, err := openVPNPKI.secretClientCertGet(secretPKI)
+	if err != nil {
+		return
+	}
+
+	server, err := openVPNPKI.secretClientCertGet(secretServer)
+	if err != nil {
+		return
+	}
+
+	//ex, err := os.Executable()
+	//if err != nil {
+	//	panic(err)
+	//}
+	//workdir := filepath.Dir(ex)
+	//var easyrsaDirPath = fmt.Sprintf("%s/easyrsa", workdir)
+
+	if _, err := os.Stat(fmt.Sprintf("%s/pki/issued", easyrsaDirPath)); os.IsNotExist(err) {
+		err = os.MkdirAll(fmt.Sprintf("%s/pki/issued", easyrsaDirPath), 0755)
+	}
+
+	if _, err := os.Stat(fmt.Sprintf("%s/pki/private", easyrsaDirPath)); os.IsNotExist(err) {
+		err = os.MkdirAll(fmt.Sprintf("%s/pki/private", easyrsaDirPath), 0755)
+	}
+
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/ca.crt", easyrsaDirPath), ca.CertPEM.Bytes(), 0644)
+	if err != nil {
+		return
+	}
+
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/issued/server.crt", easyrsaDirPath), server.CertPEM.Bytes(), 0644)
+	if err != nil {
+		return
+	}
+
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/private/server.key", easyrsaDirPath), server.PrivKeyPEM.Bytes(), 0644)
 	return
 }
