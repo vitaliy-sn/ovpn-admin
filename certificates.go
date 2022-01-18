@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"os"
+	"os/exec"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -28,6 +29,7 @@ const (
 	secretClientTmpl = "openvpn-pki-%s"
 	secretCRL        = "openvpn-pki-crl"
 	secretIndexTxt   = "openvpn-pki-index-txt"
+	secretDHandTA    = "openvpn-dh-and-ta"
 	namespace        = "default"
 	certFileName     = "pem.crt"
 	privKeyFileName  = "pem.key"
@@ -87,6 +89,13 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 	err = openVPNPKI.easyrsaGenCRL()
 	if err != nil {
 		log.Error(err)
+	}
+
+	if res, _ := openVPNPKI.checkSecretExist(secretDHandTA); !res {
+		err := openVPNPKI.secretGenTaKeyAndDHParam()
+		if err != nil {
+			log.Error(err)
+		}
 	}
 
 	err = openVPNPKI.updateFilesFromSecrets()
@@ -675,12 +684,9 @@ func (openVPNPKI *OpenVPNPKI) updateFilesFromSecrets() (err error) {
 		return
 	}
 
-	//ex, err := os.Executable()
-	//if err != nil {
-	//	panic(err)
-	//}
-	//workdir := filepath.Dir(ex)
-	//var easyrsaDirPath = fmt.Sprintf("%s/easyrsa", workdir)
+	secret, err := openVPNPKI.secretGet(secretDHandTA)
+	takey := secret.Data["ta.key"]
+	dhparam := secret.Data["dh.pem"]
 
 	if _, err := os.Stat(fmt.Sprintf("%s/pki/issued", easyrsaDirPath)); os.IsNotExist(err) {
 		err = os.MkdirAll(fmt.Sprintf("%s/pki/issued", easyrsaDirPath), 0755)
@@ -701,5 +707,46 @@ func (openVPNPKI *OpenVPNPKI) updateFilesFromSecrets() (err error) {
 	}
 
 	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/private/server.key", easyrsaDirPath), server.PrivKeyPEM.Bytes(), 0644)
+	if err != nil {
+		return
+	}
+
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/ta.key", easyrsaDirPath), takey, 0644)
+	if err != nil {
+		return
+	}
+
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/dh.pem", easyrsaDirPath), dhparam, 0644)
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) secretGenTaKeyAndDHParam() (err error) {
+	taKeyPath := "/tmp/ta.key"
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("/usr/sbin/openvpn --genkey --secret %s", taKeyPath))
+	stdout, err := cmd.CombinedOutput()
+	log.Info(stdout)
+	if err != nil {
+		return
+	}
+	taKey, err := ioutil.ReadFile(taKeyPath)
+
+	dhparamPath := "/tmp/dh.pem"
+	cmd = exec.Command("bash", "-c", fmt.Sprintf("openssl dhparam -out %s 2048", dhparamPath))
+	_, err = cmd.CombinedOutput()
+	if err != nil {
+		return
+	}
+	dhparam, err := ioutil.ReadFile(dhparamPath)
+
+	secretData := map[string]string{
+		"ta.key": string(taKey),
+		"dh.pem": string(dhparam),
+	}
+
+	err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretDHandTA}, secretData)
+	if err != nil {
+		return
+	}
+
 	return
 }
