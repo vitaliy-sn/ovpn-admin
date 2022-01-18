@@ -697,35 +697,35 @@ func (openVPNPKI *OpenVPNPKI) updateFilesFromSecrets() (err error) {
 	takey := secret.Data["ta.key"]
 	dhparam := secret.Data["dh.pem"]
 
-	if _, err := os.Stat(fmt.Sprintf("%s/pki/issued", easyrsaDirPath)); os.IsNotExist(err) {
-		err = os.MkdirAll(fmt.Sprintf("%s/pki/issued", easyrsaDirPath), 0755)
+	if _, err := os.Stat(fmt.Sprintf("%s/pki/issued", *easyrsaDirPath)); os.IsNotExist(err) {
+		err = os.MkdirAll(fmt.Sprintf("%s/pki/issued", *easyrsaDirPath), 0755)
 	}
 
-	if _, err := os.Stat(fmt.Sprintf("%s/pki/private", easyrsaDirPath)); os.IsNotExist(err) {
-		err = os.MkdirAll(fmt.Sprintf("%s/pki/private", easyrsaDirPath), 0755)
+	if _, err := os.Stat(fmt.Sprintf("%s/pki/private", *easyrsaDirPath)); os.IsNotExist(err) {
+		err = os.MkdirAll(fmt.Sprintf("%s/pki/private", *easyrsaDirPath), 0755)
 	}
 
-	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/ca.crt", easyrsaDirPath), ca.CertPEM.Bytes(), 0644)
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/ca.crt", *easyrsaDirPath), ca.CertPEM.Bytes(), 0644)
 	if err != nil {
 		return
 	}
 
-	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/issued/server.crt", easyrsaDirPath), server.CertPEM.Bytes(), 0644)
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/issued/server.crt", *easyrsaDirPath), server.CertPEM.Bytes(), 0644)
 	if err != nil {
 		return
 	}
 
-	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/private/server.key", easyrsaDirPath), server.PrivKeyPEM.Bytes(), 0644)
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/private/server.key", *easyrsaDirPath), server.PrivKeyPEM.Bytes(), 0644)
 	if err != nil {
 		return
 	}
 
-	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/ta.key", easyrsaDirPath), takey, 0644)
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/ta.key", *easyrsaDirPath), takey, 0644)
 	if err != nil {
 		return
 	}
 
-	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/dh.pem", easyrsaDirPath), dhparam, 0644)
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/dh.pem", *easyrsaDirPath), dhparam, 0644)
 	return
 }
 
