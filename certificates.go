@@ -75,7 +75,7 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 	if _, err := os.Stat(kubeNamespaceFilePath); err == nil {
 		file, err := ioutil.ReadFile(kubeNamespaceFilePath)
 		if err != nil {
-			return
+			return err
 		}
 		namespace = string(file)
 	}
