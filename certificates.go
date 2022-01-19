@@ -745,7 +745,7 @@ func (openVPNPKI *OpenVPNPKI) secretGenTaKeyAndDHParam() (err error) {
 	taKeyPath := "/tmp/ta.key"
 	cmd := exec.Command("bash", "-c", fmt.Sprintf("/usr/sbin/openvpn --genkey --secret %s", taKeyPath))
 	stdout, err := cmd.CombinedOutput()
-	log.Info(string(stdout))
+	log.Info(fmt.Sprintf("/usr/sbin/openvpn --genkey --secret %s: %s", taKeyPath, string(stdout)))
 	if err != nil {
 		return
 	}
