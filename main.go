@@ -400,7 +400,10 @@ func main() {
 	log.SetFormatter(&log.JSONFormatter{})
 
 	if *kubernetesBackend {
-		_ = app.run()
+		err := app.run()
+		if err != nil {
+			log.Error(err)
+		}
 	}
 
 	if *indexTxtPath == "" {
