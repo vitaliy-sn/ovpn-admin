@@ -726,6 +726,18 @@ func (openVPNPKI *OpenVPNPKI) updateFilesFromSecrets() (err error) {
 	}
 
 	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/dh.pem", *easyrsaDirPath), dhparam, 0644)
+	if err != nil {
+		return
+	}
+
+	err = openVPNPKI.updateCRLOnDisk()
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) updateCRLOnDisk() (err error) {
+	secret, err := openVPNPKI.secretGet(secretCRL)
+	crl := secret.Data["crl.pem"]
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/crl.pem", *easyrsaDirPath), crl, 0644)
 	return
 }
 
@@ -733,7 +745,7 @@ func (openVPNPKI *OpenVPNPKI) secretGenTaKeyAndDHParam() (err error) {
 	taKeyPath := "/tmp/ta.key"
 	cmd := exec.Command("bash", "-c", fmt.Sprintf("/usr/sbin/openvpn --genkey --secret %s", taKeyPath))
 	stdout, err := cmd.CombinedOutput()
-	log.Info(stdout)
+	log.Info(string(stdout))
 	if err != nil {
 		return
 	}
