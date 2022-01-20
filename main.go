@@ -69,7 +69,7 @@ var (
 	ccdTemplatePath          = kingpin.Flag("templates.ccd-path", "path to custom ccd.tpl").Default("").Envar("OVPN_TEMPLATES_CCD_PATH").String()
 	authByPassword           = kingpin.Flag("auth.password", "enable additional password authentication").Default("false").Envar("OVPN_AUTH").Bool()
 	authDatabase             = kingpin.Flag("auth.db", "database path for password authentication").Default("./easyrsa/pki/users.db").Envar("OVPN_AUTH_DB_PATH").String()
-	logLevel                 = kingpin.Flag("log.level", "set log level (debug, info, warn, error)").Default("info").Envar("LOG_LEVEL").String()
+	logLevel                 = kingpin.Flag("log.level", "set log level (trace, debug, info, warn, error)").Default("info").Envar("LOG_LEVEL").String()
 	kubernetesBackend        = kingpin.Flag("kubernetes.backend", "use kubernetes secrets for store certificates").Bool()
 
 	certsArchivePath = "/tmp/" + certsArchiveFileName
@@ -79,6 +79,7 @@ var (
 )
 
 var logLevels = map[string]log.Level{
+	"trace": log.TraceLevel,
 	"debug": log.DebugLevel,
 	"info":  log.InfoLevel,
 	"warn":  log.WarnLevel,
@@ -970,6 +971,7 @@ func (oAdmin *OvpnAdmin) getUserStatistic(username string) clientStatus {
 }
 
 func (oAdmin *OvpnAdmin) userRevoke(username string) string {
+	log.Infof("Revoke user: %s", username)
 	var shellOut string
 	if checkUserExist(username) {
 		// check certificate valid flag 'V'
@@ -985,11 +987,12 @@ func (oAdmin *OvpnAdmin) userRevoke(username string) string {
 
 		if *authByPassword {
 			shellOut = runBash(fmt.Sprintf("openvpn-user revoke --db-path %s --user %s", *authDatabase, username))
-			//log.Debug(shellOut)
+			log.Trace(shellOut)
 		}
 
 		crlFix()
 		userConnected, userConnectedTo := isUserConnected(username, oAdmin.activeClients)
+		log.Tracef("User %s connected: %t", username, userConnected)
 		if userConnected {
 			oAdmin.mgmtKillUserConnection(username, userConnectedTo)
 			log.Infof("Session for user \"%s\" session killed\n", username)
