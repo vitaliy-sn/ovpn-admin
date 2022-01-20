@@ -601,17 +601,17 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 
 		conf := openvpnClientConfig{}
 		conf.Hosts = hosts
+		conf.CA = fRead(*easyrsaDirPath + "/pki/ca.crt")
+		conf.TLS = fRead(*easyrsaDirPath + "/pki/ta.key")
+
 		if *kubernetesBackend {
-			conf.CA = app.easyrsaGetCACert()
 			clientCert := app.easyrsaGetClientCert(username)
 			conf.Cert = clientCert.CertPEM.String()
 			conf.Key = clientCert.PrivKeyPEM.String()
-			//	TODO ta.key
 		} else {
-			conf.CA = fRead(*easyrsaDirPath + "/pki/ca.crt")
 			conf.Cert = fRead(*easyrsaDirPath + "/pki/issued/" + username + ".crt")
 			conf.Key = fRead(*easyrsaDirPath + "/pki/private/" + username + ".key")
-			conf.TLS = fRead(*easyrsaDirPath + "/pki/ta.key")
+
 		}
 
 		conf.PasswdAuth = *authByPassword
