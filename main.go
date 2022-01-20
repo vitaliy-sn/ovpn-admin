@@ -416,13 +416,16 @@ func main() {
 
 	ovpnAdmin := new(OvpnAdmin)
 
-	switch os.Getenv("LC_TIME") {
+	lcTime := os.Getenv("LC_TIME")
+	log.Infof("LC_TIME: %s", lcTime)
+
+	switch lcTime {
 	case "C.UTF-8":
 		ovpnAdmin.timeFormat = time.ANSIC
 	case "en_GB.UTF-8":
 		ovpnAdmin.timeFormat = "Mon 02 Jan 15:04:05 MST 2006"
 	case "en_US.UTF-8":
-		ovpnAdmin.timeFormat = "Mon 02 Jan 2006 15:04:05 PM MST"
+		ovpnAdmin.timeFormat = "Mon 02 Jan 2006 03:04:05 PM MST"
 	}
 
 	ovpnAdmin.lastSyncTime = "unknown"
