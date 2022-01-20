@@ -440,13 +440,10 @@ func main() {
 
 	log.Infof("time locale: %s", lcTime)
 
-	switch lcTime {
-	case "C.UTF-8":
-		ovpnAdmin.timeFormat = time.ANSIC
-	case "en_GB.UTF-8":
-		ovpnAdmin.timeFormat = "Mon 02 Jan 15:04:05 MST 2006"
-	case "en_US.UTF-8":
-		ovpnAdmin.timeFormat = "Mon 02 Jan 2006 03:04:05 PM MST"
+	ovpnAdmin.timeFormat = time.ANSIC
+
+	if lcTime != "C.UTF-8" {
+		ovpnAdmin.timeFormat = "Mon Jan 02 15:04:05 2006"
 	}
 
 	ovpnAdmin.lastSyncTime = "unknown"
