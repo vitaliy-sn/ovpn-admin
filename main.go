@@ -798,15 +798,7 @@ func validatePassword(password string) bool {
 
 func checkUserExist(username string) bool {
 	var indexTxt string
-	if *kubernetesBackend {
-		var err error
-		indexTxt, err = app.secretGetIndexTxt()
-		if err != nil {
-			log.Error(err)
-		}
-	} else {
-		indexTxt = fRead(*indexTxtPath)
-	}
+	indexTxt = fRead(*indexTxtPath)
 
 	for _, u := range indexTxtParser(indexTxt) {
 		if u.DistinguishedName == ("/CN=" + username) {
@@ -827,15 +819,7 @@ func (oAdmin *OvpnAdmin) usersList() []OpenvpnClient {
 	apochNow := time.Now().Unix()
 
 	var indexTxt string
-	if *kubernetesBackend {
-		var err error
-		indexTxt, err = app.secretGetIndexTxt()
-		if err != nil {
-			log.Error(err)
-		}
-	} else {
-		indexTxt = fRead(*indexTxtPath)
-	}
+	indexTxt = fRead(*indexTxtPath)
 
 	for _, line := range indexTxtParser(indexTxt) {
 		if line.Identity != "server" {
@@ -1281,10 +1265,6 @@ func getOvpnServerHostsFromKubeApi() ([]OpenvpnServer, error) {
 }
 
 func getOvpnCaCertExpireDate() time.Time {
-	if *kubernetesBackend {
-		return app.CACert.NotAfter
-	}
-
 	caCertPath := *easyrsaDirPath + "/pki/ca.crt"
 	caCert, err := ioutil.ReadFile(caCertPath)
 	if err != nil {
