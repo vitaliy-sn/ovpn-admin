@@ -416,8 +416,13 @@ func main() {
 
 	ovpnAdmin := new(OvpnAdmin)
 
+
 	lcTime := os.Getenv("LC_TIME")
-	log.Infof("LC_TIME: %s", lcTime)
+	if lcTime == "" {
+		lcTime = os.Getenv("LANG")
+	}
+
+	log.Infof("time locale: %s", lcTime)
 
 	switch lcTime {
 	case "C.UTF-8":
