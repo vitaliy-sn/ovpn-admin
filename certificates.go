@@ -383,6 +383,11 @@ func (openVPNPKI *OpenVPNPKI) easyrsaRevoke(commonName string) (err error) {
 	}
 
 	err = openVPNPKI.indexTxtUpdate()
+	if err != nil {
+		return
+	}
+
+	err = openVPNPKI.updateCRLOnDisk()
 
 	return
 }
