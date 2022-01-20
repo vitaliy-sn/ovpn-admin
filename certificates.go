@@ -112,6 +112,8 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 		log.Error(err)
 	}
 
+	err = openVPNPKI.updateIndexTxtOnDisk()
+
 	return
 }
 
@@ -194,9 +196,10 @@ func (openVPNPKI *OpenVPNPKI) initKubeClient() (err error) {
 	return
 }
 
-func (openVPNPKI *OpenVPNPKI) secretGetIndexTxt() (indexTxt string, err error) {
+func (openVPNPKI *OpenVPNPKI) updateIndexTxtOnDisk() (err error) {
 	secret, err := openVPNPKI.secretGet(secretIndexTxt)
-	indexTxt = string(secret.Data["index.txt"])
+	indexTxt := secret.Data["index.txt"]
+	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/index.txt", *easyrsaDirPath), indexTxt, 0600)
 	return
 }
 
@@ -324,6 +327,11 @@ func (openVPNPKI *OpenVPNPKI) easyrsaBuildClient(commonName string) (err error) 
 	}
 
 	err = openVPNPKI.indexTxtUpdate()
+	if err != nil {
+		return
+	}
+
+	err = openVPNPKI.updateIndexTxtOnDisk()
 
 	return
 }
@@ -387,6 +395,11 @@ func (openVPNPKI *OpenVPNPKI) easyrsaRevoke(commonName string) (err error) {
 		return
 	}
 
+	err = openVPNPKI.updateIndexTxtOnDisk()
+	if err != nil {
+		return
+	}
+
 	err = openVPNPKI.updateCRLOnDisk()
 
 	return
@@ -420,8 +433,13 @@ func (openVPNPKI *OpenVPNPKI) easyrsaUnrevoke(commonName string) (err error) {
 		return
 	}
 
+	err = openVPNPKI.updateIndexTxtOnDisk()
+	if err != nil {
+		return
+	}
+
 	err = openVPNPKI.updateCRLOnDisk()
-	
+
 	return
 }
 
