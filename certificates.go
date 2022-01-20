@@ -112,6 +112,11 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 		log.Error(err)
 	}
 
+	err = openVPNPKI.updateCRLOnDisk()
+	if err != nil {
+		log.Error(err)
+	}
+
 	err = openVPNPKI.updateIndexTxtOnDisk()
 
 	return
@@ -400,6 +405,11 @@ func (openVPNPKI *OpenVPNPKI) easyrsaRevoke(commonName string) (err error) {
 		return
 	}
 
+	err = openVPNPKI.easyrsaGenCRL()
+	if err != nil {
+		log.Error(err)
+	}
+
 	err = openVPNPKI.updateCRLOnDisk()
 
 	return
@@ -436,6 +446,11 @@ func (openVPNPKI *OpenVPNPKI) easyrsaUnrevoke(commonName string) (err error) {
 	err = openVPNPKI.updateIndexTxtOnDisk()
 	if err != nil {
 		return
+	}
+
+	err = openVPNPKI.easyrsaGenCRL()
+	if err != nil {
+		log.Error(err)
 	}
 
 	err = openVPNPKI.updateCRLOnDisk()
@@ -766,6 +781,9 @@ func (openVPNPKI *OpenVPNPKI) updateCRLOnDisk() (err error) {
 	secret, err := openVPNPKI.secretGet(secretCRL)
 	crl := secret.Data["crl.pem"]
 	err = ioutil.WriteFile(fmt.Sprintf("%s/pki/crl.pem", *easyrsaDirPath), crl, 0600)
+	if err != nil {
+		log.Errorf("error write crl.pem:%s", err.Error())
+	}
 	return
 }
 
