@@ -1116,7 +1116,7 @@ func (oAdmin *OvpnAdmin) mgmtGetActiveClients() []clientStatus {
 	for srv, addr := range oAdmin.mgmtInterfaces {
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
-			log.Errorf("WARNING: openvpn mgmt interface for %s is not reachable by addr %s\n", srv, addr)
+			log.Errorf("WARNING: openvpn mgmt interface for %s is not reachable by addr %s", srv, addr)
 			break
 		}
 		oAdmin.mgmtRead(conn) // read welcome message
