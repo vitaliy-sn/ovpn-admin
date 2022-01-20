@@ -170,6 +170,7 @@ type OvpnAdmin struct {
 	mgmtInterfaces         map[string]string
 	templates              *packr.Box
 	modules                []string
+	timeFormat             string
 }
 
 type OpenvpnServer struct {
@@ -414,6 +415,16 @@ func main() {
 	}
 
 	ovpnAdmin := new(OvpnAdmin)
+
+	switch os.Getenv("LC_TIME") {
+	case "C.UTF-8":
+		ovpnAdmin.timeFormat = time.ANSIC
+	case "en_GB.UTF-8":
+		ovpnAdmin.timeFormat = "Mon 02 Jan 15:04:05 MST 2006"
+	case "en_US.UTF-8":
+		ovpnAdmin.timeFormat = "Mon 02 Jan 2006 15:04:05 PM MST"
+	}
+
 	ovpnAdmin.lastSyncTime = "unknown"
 	ovpnAdmin.role = *serverRole
 	ovpnAdmin.lastSuccessfulSyncTime = "unknown"
@@ -580,7 +591,6 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 			parts := strings.SplitN(server, ":", 3)
 			hosts = append(hosts, OpenvpnServer{Host: parts[0], Port: parts[1], Protocol: parts[2]})
 		}
-
 
 		if *openvpnServerBehindLB {
 			var err error
@@ -901,7 +911,6 @@ func (oAdmin *OvpnAdmin) userCreate(username, password string) (bool, string) {
 		log.Println(o)
 	}
 
-
 	if *authByPassword {
 		o := runBash(fmt.Sprintf("openvpn-user create --db.path %s --user %s --password %s", *authDatabase, username, password))
 		log.Println(o)
@@ -1075,7 +1084,7 @@ func (oAdmin *OvpnAdmin) mgmtConnectedUsersParser(text, serverName string) []cli
 			u = append(u, userStatus)
 			bytesSent, _ := strconv.Atoi(userBytesSent)
 			bytesReceive, _ := strconv.Atoi(userBytesReceived)
-			ovpnClientConnectionFrom.WithLabelValues(userName, userAddress).Set(float64(parseDateToUnix(ovpnStatusDateLayout, userConnectedSince)))
+			ovpnClientConnectionFrom.WithLabelValues(userName, userAddress).Set(float64(parseDateToUnix(oAdmin.timeFormat, userConnectedSince)))
 			ovpnClientBytesSent.WithLabelValues(userName).Set(float64(bytesSent))
 			ovpnClientBytesReceived.WithLabelValues(userName).Set(float64(bytesReceive))
 		}
@@ -1085,7 +1094,7 @@ func (oAdmin *OvpnAdmin) mgmtConnectedUsersParser(text, serverName string) []cli
 				if u[i].CommonName == user[1] {
 					u[i].VirtualAddress = user[0]
 					u[i].LastRef = user[3]
-					ovpnClientConnectionInfo.WithLabelValues(user[1], user[0]).Set(float64(parseDateToUnix(ovpnStatusDateLayout, user[3])))
+					ovpnClientConnectionInfo.WithLabelValues(user[1], user[0]).Set(float64(parseDateToUnix(oAdmin.timeFormat, user[3])))
 					break
 				}
 			}
