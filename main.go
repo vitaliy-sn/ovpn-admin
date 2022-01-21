@@ -32,7 +32,6 @@ import (
 
 const (
 	usernameRegexp       = `^([a-zA-Z0-9_.-@])+$`
-	passwordRegexp       = `^([a-zA-Z0-9_.-@])+$`
 	passwordMinLength    = 6
 	downloadCertsApiUrl  = "/api/data/certs/download"
 	downloadCcdApiUrl    = "/api/data/ccd/download"
@@ -40,9 +39,7 @@ const (
 	ccdArchiveFileName   = "ccd.tar.gz"
 	indexTxtDateLayout   = "060102150405Z"
 	stringDateFormat     = "2006-01-02 15:04:05"
-	ovpnStatusDateLayout = "2006-01-02 15:04:05"
 
-	kubeTokenFilePath     = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	kubeNamespaceFilePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
@@ -432,7 +429,6 @@ func main() {
 
 	ovpnAdmin := new(OvpnAdmin)
 
-
 	lcTime := os.Getenv("LC_TIME")
 	if lcTime == "" {
 		lcTime = os.Getenv("LANG")
@@ -661,7 +657,7 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 
 		hosts = nil
 
-		log.Debugf("INFO: Rendered config for user %s: %+v", username, tmp.String())
+		log.Tracef("Rendered config for user %s: %+v", username, tmp.String())
 
 		return fmt.Sprintf("%+v", tmp.String())
 	}
@@ -809,10 +805,7 @@ func validatePassword(password string) bool {
 }
 
 func checkUserExist(username string) bool {
-	var indexTxt string
-	indexTxt = fRead(*indexTxtPath)
-
-	for _, u := range indexTxtParser(indexTxt) {
+	for _, u := range indexTxtParser(fRead(*indexTxtPath)) {
 		if u.DistinguishedName == ("/CN=" + username) {
 			return true
 		}
@@ -830,10 +823,7 @@ func (oAdmin *OvpnAdmin) usersList() []OpenvpnClient {
 	connectedUsers := 0
 	apochNow := time.Now().Unix()
 
-	var indexTxt string
-	indexTxt = fRead(*indexTxtPath)
-
-	for _, line := range indexTxtParser(indexTxt) {
+	for _, line := range indexTxtParser(fRead(*indexTxtPath)) {
 		if line.Identity != "server" {
 			totalCerts += 1
 			ovpnClient := OpenvpnClient{Identity: line.Identity, ExpirationDate: parseDateToString(indexTxtDateLayout, line.ExpirationDate, stringDateFormat)}
@@ -932,7 +922,7 @@ func (oAdmin *OvpnAdmin) userChangePassword(username, password string) (bool, st
 
 	if checkUserExist(username) {
 		o := runBash(fmt.Sprintf("openvpn-user check --db.path %s --user %s | grep %s | wc -l", *authDatabase, username, username))
-		log.Trace(o)
+		log.Info(o)
 
 		if !validatePassword(password) {
 			ucpErr := fmt.Sprintf("Password for too short, password length must be greater or equal %d", passwordMinLength)
@@ -943,13 +933,13 @@ func (oAdmin *OvpnAdmin) userChangePassword(username, password string) (bool, st
 		if strings.TrimSpace(o) == "0" {
 			log.Info("Creating user in users.db")
 			o = runBash(fmt.Sprintf("openvpn-user create --db.path %s --user %s --password %s", *authDatabase, username, password))
-			log.Trace(o)
+			log.Info(o)
 		}
 
 		o = runBash(fmt.Sprintf("openvpn-user change-password --db.path %s --user %s --password %s", *authDatabase, username, password))
-		log.Trace(o)
+		log.Info(o)
 
-		log.Infof("INFO: password for user %s was changed", username)
+		log.Tracef("INFO: password for user %s was changed", username)
 
 		return true, "Password changed"
 	}
@@ -1228,9 +1218,9 @@ func (oAdmin *OvpnAdmin) syncDataFromMaster() {
 		}
 	}
 
-	oAdmin.lastSyncTime = time.Now().Format("2006-01-02 15:04:05")
+	oAdmin.lastSyncTime = time.Now().Format(stringDateFormat)
 	if !ccdDownloadFailed && !certsDownloadFailed {
-		oAdmin.lastSuccessfulSyncTime = time.Now().Format("2006-01-02 15:04:05")
+		oAdmin.lastSuccessfulSyncTime = time.Now().Format(stringDateFormat)
 	}
 }
 
