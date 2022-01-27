@@ -683,7 +683,12 @@ func (oAdmin *OvpnAdmin) parseCcd(username string) Ccd {
 	ccd.ClientAddress = "dynamic"
 	ccd.CustomRoutes = []ccdRoute{}
 
-	txtLinesArray := strings.Split(fRead(*ccdDir+"/"+username), "\n")
+	var txtLinesArray []string
+	if *kubernetesBackend {
+		txtLinesArray = strings.Split(app.secretGetCcd(ccd.User), "\n")
+	} else {
+		txtLinesArray = strings.Split(fRead(*ccdDir+"/"+username), "\n")
+	}
 
 	for _, v := range txtLinesArray {
 		str := strings.Fields(v)
@@ -700,28 +705,33 @@ func (oAdmin *OvpnAdmin) parseCcd(username string) Ccd {
 	return ccd
 }
 
+// TODO
 func (oAdmin *OvpnAdmin) modifyCcd(ccd Ccd) (bool, string) {
-	ccdErr := "something goes wrong"
-
-	if fCreate(*ccdDir + "/" + ccd.User) {
-		ccdValid, ccdErr := validateCcd(ccd)
-		if ccdErr != "" {
-			return false, ccdErr
-		}
-
-		if ccdValid {
-			t := oAdmin.getCcdTemplate()
-			var tmp bytes.Buffer
-			tplErr := t.Execute(&tmp, ccd)
-			if tplErr != nil {
-				log.Error(tplErr)
-			}
-			fWrite(*ccdDir+"/"+ccd.User, tmp.String())
-			return true, "ccd updated successfully"
-		}
+	ccdValid, ccdErr := validateCcd(ccd)
+	if ccdErr != "" {
+		return false, ccdErr
 	}
 
-	return false, ccdErr
+	if ccdValid {
+		t := oAdmin.getCcdTemplate()
+		var tmp bytes.Buffer
+		tplErr := t.Execute(&tmp, ccd)
+		if tplErr != nil {
+			log.Error(tplErr)
+		}
+		if *kubernetesBackend {
+			app.secretUpdateCcd(ccd.User, tmp.Bytes())
+		} else {
+			fWrite(*ccdDir+"/"+ccd.User, tmp.String())
+		}
+
+		return true, "ccd updated successfully"
+	}
+
+	//if fCreate(*ccdDir + "/" + ccd.User) {
+	//}
+
+	return false, "something goes wrong"
 }
 
 func validateCcd(ccd Ccd) (bool, string) {
@@ -770,15 +780,18 @@ func validateCcd(ccd Ccd) (bool, string) {
 	return true, ccdErr
 }
 
+// TODO
 func (oAdmin *OvpnAdmin) getCcd(username string) Ccd {
 	ccd := Ccd{}
 	ccd.User = username
 	ccd.ClientAddress = "dynamic"
 	ccd.CustomRoutes = []ccdRoute{}
 
-	if fCreate(*ccdDir + "/" + username) {
-		ccd = oAdmin.parseCcd(username)
-	}
+	//if fCreate(*ccdDir + "/" + username) {
+	//
+	//}
+	ccd = oAdmin.parseCcd(username)
+
 	return ccd
 }
 
@@ -911,7 +924,7 @@ func (oAdmin *OvpnAdmin) userCreate(username, password string) (bool, string) {
 		log.Debug(o)
 	}
 
-	log.Infof("INFO: user created: %s", username)
+	log.Infof("Certificate for user %s issued", username)
 
 	oAdmin.clients = oAdmin.usersList()
 
@@ -957,7 +970,7 @@ func (oAdmin *OvpnAdmin) getUserStatistic(username string) clientStatus {
 }
 
 func (oAdmin *OvpnAdmin) userRevoke(username string) string {
-	log.Infof("Revoke user: %s", username)
+	log.Infof("Revoke certificate for user %s", username)
 	var shellOut string
 	if checkUserExist(username) {
 		// check certificate valid flag 'V'
@@ -1118,7 +1131,7 @@ func (oAdmin *OvpnAdmin) mgmtGetActiveClients() []clientStatus {
 	for srv, addr := range oAdmin.mgmtInterfaces {
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
-			log.Errorf("WARNING: openvpn mgmt interface for %s is not reachable by addr %s", srv, addr)
+			log.Warnf("openvpn mgmt interface for %s is not reachable by addr %s", srv, addr)
 			break
 		}
 		oAdmin.mgmtRead(conn) // read welcome message
