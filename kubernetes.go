@@ -56,11 +56,6 @@ type ClientCert struct {
 	CertPEM    *bytes.Buffer
 }
 
-//type ClientSecret struct {
-//	ClientCert  ClientCert
-//	Annotations map[string]string
-//}
-
 type RevokedCert struct {
 	RevokedTime time.Time         `json:"revokedTime"`
 	CommonName  string            `json:"commonName"`
@@ -205,7 +200,6 @@ func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
 
 	return
 }
-
 
 func (openVPNPKI *OpenVPNPKI) indexTxtUpdate() (err error) {
 	secrets, err := openVPNPKI.secretsGetByLabels("index.txt=")
@@ -352,51 +346,19 @@ func (openVPNPKI *OpenVPNPKI) easyrsaGetCACert() string {
 }
 
 func (openVPNPKI *OpenVPNPKI) easyrsaGetClientCert(commonName string) (cert, key string) {
-	//clients, err := openVPNPKI.secretGetClientCerts()
-	//if err != nil {
-	//	log.Error(err)
-	//}
-	//
-	//var serialNumber string
-	//for _, client := range clients {
-	//	if client.Annotations["commonName"] == commonName {
-	//		serialNumber = client.ClientCert.Cert.SerialNumber.String()
-	//		break
-	//	}
-	//}
-
-	secret, err := openVPNPKI.secretGetByLabels("name="+commonName)
+	secret, err := openVPNPKI.secretGetByLabels("name=" + commonName)
 	if err != nil {
 		log.Error(err)
 	}
 
 	cert = string(secret.Data[certFileName])
 	key = string(secret.Data[privKeyFileName])
-	//cert, err = openVPNPKI.secretGetClientCert(fmt.Sprintf(secretClientTmpl, serialNumber))
-	//if err != nil {
-	//	log.Error(err)
-	//}
 
 	return
 }
 
 func (openVPNPKI *OpenVPNPKI) easyrsaRevoke(commonName string) (err error) {
-	//clients, err := openVPNPKI.secretGetClientCerts()
-	//
-	//var serialNumber string
-	//for _, client := range clients {
-	//	if client.Annotations["commonName"] == commonName {
-	//		serialNumber = client.ClientCert.Cert.SerialNumber.String()
-	//		break
-	//	}
-	//}
-	//
-	//secret, err := openVPNPKI.secretGetByName(fmt.Sprintf(secretClientTmpl, serialNumber))
-	//if err != nil {
-	//	return
-	//}
-
-	secret, err := openVPNPKI.secretGetByLabels("name="+commonName)
+	secret, err := openVPNPKI.secretGetByLabels("name=" + commonName)
 	if err != nil {
 		log.Error(err)
 	}
@@ -434,22 +396,7 @@ func (openVPNPKI *OpenVPNPKI) easyrsaRevoke(commonName string) (err error) {
 }
 
 func (openVPNPKI *OpenVPNPKI) easyrsaUnrevoke(commonName string) (err error) {
-	//clients, err := openVPNPKI.secretGetClientCerts()
-	//
-	//var serialNumber string
-	//for _, client := range clients {
-	//	if client.Annotations["commonName"] == commonName {
-	//		serialNumber = client.ClientCert.Cert.SerialNumber.String()
-	//		break
-	//	}
-	//}
-	//
-	//secret, err := openVPNPKI.secretGetByName(fmt.Sprintf(secretClientTmpl, serialNumber))
-	//if err != nil {
-	//	return
-	//}
-
-	secret, err := openVPNPKI.secretGetByLabels("name="+commonName)
+	secret, err := openVPNPKI.secretGetByLabels("name=" + commonName)
 	if err != nil {
 		log.Error(err)
 	}
@@ -501,31 +448,6 @@ func (openVPNPKI *OpenVPNPKI) secretGetClientCert(name string) (cert ClientCert,
 
 	return
 }
-
-//func (openVPNPKI *OpenVPNPKI) secretGetClientCerts() (clientSecrets []ClientSecret, err error) {
-//	secrets, err := openVPNPKI.secretsGetByLabels("index.txt=,type=clientAuth")
-//
-//	for _, secret := range secrets.Items {
-//		tmpCertPEM := bytes.NewBuffer(secret.Data[certFileName])
-//		tmpCert, err := decodeCert(tmpCertPEM.Bytes())
-//		if err != nil {
-//			log.Println(1)
-//			return nil, err
-//		}
-//		tmpPrivKeyPEM := bytes.NewBuffer(secret.Data[privKeyFileName])
-//		tmpPrivKey, err := decodePrivKey(tmpPrivKeyPEM.Bytes())
-//		if err != nil {
-//			log.Println(tmpCert.DNSNames[0])
-//			return nil, err
-//		}
-//		clientSecrets = append(clientSecrets, ClientSecret{
-//			ClientCert:  ClientCert{PrivKeyPEM: tmpPrivKeyPEM, PrivKeyRSA: tmpPrivKey, CertPEM: tmpCertPEM, Cert: tmpCert},
-//			Annotations: secret.Annotations,
-//		})
-//	}
-//
-//	return
-//}
 
 func (openVPNPKI *OpenVPNPKI) updateFilesFromSecrets() (err error) {
 	ca, err := openVPNPKI.secretGetClientCert(secretPKI)
@@ -619,9 +541,6 @@ func (openVPNPKI *OpenVPNPKI) secretGenTaKeyAndDHParam() (err error) {
 
 	return
 }
-
-
-
 
 // ccd
 
@@ -753,16 +672,6 @@ func (openVPNPKI *OpenVPNPKI) secretGetByLabels(labels string) (secret *v1.Secre
 
 func (openVPNPKI *OpenVPNPKI) secretCheckExists(name string) (bool, string) {
 	secret, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
-		log.Debug(err)
-		return false, ""
-	}
-	return true, secret.ResourceVersion
-}
-
-// TODO: not used
-func (openVPNPKI *OpenVPNPKI) secretCheckExistsByLabels(labels string) (bool, string) {
-	secret, err := openVPNPKI.secretGetByLabels(labels)
 	if err != nil {
 		log.Debug(err)
 		return false, ""
