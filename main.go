@@ -627,7 +627,7 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 			hosts[0].Port = externalPort
 		}
 
-		log.Debugf("hosts for %s\n %v", username, hosts)
+		log.Tracef("hosts for %s\n %v", username, hosts)
 
 		conf := openvpnClientConfig{}
 		conf.Hosts = hosts
@@ -635,9 +635,10 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 		conf.TLS = fRead(*easyrsaDirPath + "/pki/ta.key")
 
 		if *kubernetesBackend {
-			clientCert := app.easyrsaGetClientCert(username)
-			conf.Cert = clientCert.CertPEM.String()
-			conf.Key = clientCert.PrivKeyPEM.String()
+			//clientCert := app.easyrsaGetClientCert(username)
+			//conf.Cert = clientCert.CertPEM.String()
+			//conf.Key = clientCert.PrivKeyPEM.String()
+			conf.Cert, conf.Key = app.easyrsaGetClientCert(username)
 		} else {
 			conf.Cert = fRead(*easyrsaDirPath + "/pki/issued/" + username + ".crt")
 			conf.Key = fRead(*easyrsaDirPath + "/pki/private/" + username + ".key")
@@ -1264,9 +1265,9 @@ func getOvpnServerHostsFromKubeApi() ([]OpenvpnServer, error) {
 		return nil, err
 	}
 
-	log.Debugf("Debug: service from kube api %v", service)
-	log.Debugf("Debug: service.Status from kube api %v", service.Status)
-	log.Debugf("Debug: service.Status.LoadBalancer from kube api %v", service.Status.LoadBalancer)
+	log.Tracef("Debug: service from kube api %v", service)
+	log.Tracef("Debug: service.Status from kube api %v", service.Status)
+	log.Tracef("Debug: service.Status.LoadBalancer from kube api %v", service.Status.LoadBalancer)
 
 	if service.Status.LoadBalancer.Ingress[0].Hostname != "" {
 		lbHost = service.Status.LoadBalancer.Ingress[0].Hostname
