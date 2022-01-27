@@ -107,6 +107,7 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 		}
 	}
 
+	// TODO
 	err = openVPNPKI.updateFilesFromSecrets()
 	if err != nil {
 		log.Error(err)
@@ -118,6 +119,14 @@ func (openVPNPKI *OpenVPNPKI) run() (err error) {
 	}
 
 	err = openVPNPKI.updateIndexTxtOnDisk()
+	if err != nil {
+		log.Error(err)
+	}
+
+	err = openVPNPKI.updateCcdOnDisk()
+	if err != nil {
+		log.Error(err)
+	}
 
 	return
 }
@@ -146,9 +155,9 @@ func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
 			return
 		}
 
-		secretData := map[string]string{
-			certFileName:    openVPNPKI.CACertPEM.String(),
-			privKeyFileName: openVPNPKI.CAPrivKeyPEM.String(),
+		secretData := map[string][]byte{
+			certFileName:    openVPNPKI.CACertPEM.Bytes(),
+			privKeyFileName: openVPNPKI.CAPrivKeyPEM.Bytes(),
 		}
 
 		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretPKI}, secretData)
@@ -181,12 +190,12 @@ func (openVPNPKI *OpenVPNPKI) initPKI() (err error) {
 		openVPNPKI.ServerCertPEM, _ = genServerCert(openVPNPKI.ServerPrivKeyRSA, openVPNPKI.CAPrivKeyRSA, openVPNPKI.CACert, "server")
 		openVPNPKI.ServerCert, err = decodeCert(openVPNPKI.ServerCertPEM.Bytes())
 
-		secretData := map[string]string{
-			certFileName:    openVPNPKI.ServerCertPEM.String(),
-			privKeyFileName: openVPNPKI.ServerPrivKeyPEM.String(),
+		secretData := map[string][]byte{
+			certFileName:    openVPNPKI.ServerCertPEM.Bytes(),
+			privKeyFileName: openVPNPKI.ServerPrivKeyPEM.Bytes(),
 		}
 
-		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretServer, Labels: map[string]string{"index": "txt", "usage": "serverAuth"}}, secretData)
+		err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretServer, Labels: map[string]string{"index.txt": "", "type": "serverAuth"}}, secretData)
 		if err != nil {
 			return
 		}
@@ -209,7 +218,7 @@ func (openVPNPKI *OpenVPNPKI) updateIndexTxtOnDisk() (err error) {
 }
 
 func (openVPNPKI *OpenVPNPKI) indexTxtUpdate() (err error) {
-	secrets, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "index=txt"})
+	secrets, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "index.txt="})
 	if err != nil {
 		return
 	}
@@ -278,8 +287,8 @@ func (openVPNPKI *OpenVPNPKI) easyrsaGenCRL() (err error) {
 		return
 	}
 
-	secretData := map[string]string{
-		"crl.pem": crl.String(),
+	secretData := map[string][]byte{
+		"crl.pem": crl.Bytes(),
 	}
 
 	err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretCRL}, secretData)
@@ -311,9 +320,9 @@ func (openVPNPKI *OpenVPNPKI) easyrsaBuildClient(commonName string) (err error) 
 	clientCertPEM, _ := genClientCert(clientPrivKeyRSA, openVPNPKI.CAPrivKeyRSA, openVPNPKI.CACert, commonName)
 	clientCert, err := decodeCert(clientCertPEM.Bytes())
 
-	secretData := map[string]string{
-		certFileName:    clientCertPEM.String(),
-		privKeyFileName: clientPrivKeyPEM.String(),
+	secretData := map[string][]byte{
+		certFileName:    clientCertPEM.Bytes(),
+		privKeyFileName: clientPrivKeyPEM.Bytes(),
 	}
 
 	name := fmt.Sprintf(secretClientTmpl, clientCert.SerialNumber)
@@ -322,9 +331,13 @@ func (openVPNPKI *OpenVPNPKI) easyrsaBuildClient(commonName string) (err error) 
 		"notBefore":  clientCert.NotBefore.Format(indexTxtDateFormat),
 		"notAfter":   clientCert.NotAfter.Format(indexTxtDateFormat),
 		"revokedAt":  "",
-		"serial":     clientCert.SerialNumber.String(),
+		"serialNumber":     clientCert.SerialNumber.String(),
 	}
-	labels := map[string]string{"index": "txt", "usage": "clientAuth"}
+	labels := map[string]string{
+		"index.txt": "",
+		"type": "clientAuth",
+		"name": commonName,
+	}
 
 	err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: name, Labels: labels, Annotations: annotations}, secretData)
 	if err != nil {
@@ -459,18 +472,32 @@ func (openVPNPKI *OpenVPNPKI) easyrsaUnrevoke(commonName string) (err error) {
 }
 
 func (openVPNPKI *OpenVPNPKI) checkUserExist(commonName string) bool {
-	secrets, err := openVPNPKI.secretGetClients()
+	//secrets, err := openVPNPKI.secretGetClients()
+	//if err != nil {
+	//	log.Error(err)
+	//}
+	//
+	//for _, secret := range secrets {
+	//	if secret.Annotations["commonName"] == commonName {
+	//		return true
+	//	}
+	//}
+
+	_, err := openVPNPKI.secretGetClientCertByLabel(commonName)
 	if err != nil {
-		log.Error(err)
+		return false
 	}
 
-	for _, secret := range secrets {
-		if secret.Annotations["commonName"] == commonName {
-			return true
-		}
-	}
+	return true
+}
 
-	return false
+func (openVPNPKI *OpenVPNPKI) secretCheckExistByLabel(nameValue string) (bool, string) {
+	secret, err := openVPNPKI.secretGetByLabel(nameValue)
+	if err != nil {
+		log.Debug(err)
+		return false, ""
+	}
+	return true, secret.ResourceVersion
 }
 
 func (openVPNPKI *OpenVPNPKI) checkSecretExist(name string) (bool, string) {
@@ -482,25 +509,25 @@ func (openVPNPKI *OpenVPNPKI) checkSecretExist(name string) (bool, string) {
 	return true, secret.ResourceVersion
 }
 
-func (openVPNPKI *OpenVPNPKI) secretCreate(objectMeta metav1.ObjectMeta, data map[string]string) (err error) {
+func (openVPNPKI *OpenVPNPKI) secretCreate(objectMeta metav1.ObjectMeta, data map[string][]byte) (err error) {
 	if objectMeta.Name == "nil" {
 		fmt.Println("Name empty")
 	}
 	secret := &v1.Secret{
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: objectMeta,
-		StringData: data,
+		Data: data,
 		Type:       v1.SecretTypeOpaque,
 	}
 	_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Create(context.TODO(), secret, metav1.CreateOptions{})
 	return
 }
 
-func (openVPNPKI *OpenVPNPKI) secretUpdate(objectMeta metav1.ObjectMeta, data map[string]string) (err error) {
+func (openVPNPKI *OpenVPNPKI) secretUpdate(objectMeta metav1.ObjectMeta, data map[string][]byte) (err error) {
 	secret := &v1.Secret{
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: objectMeta,
-		StringData: data,
+		Data: data,
 		Type:       v1.SecretTypeOpaque,
 	}
 	_, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Update(context.TODO(), secret, metav1.UpdateOptions{})
@@ -528,13 +555,68 @@ func (openVPNPKI *OpenVPNPKI) secretClientCertGet(name string) (cert ClientCert,
 	return
 }
 
+func (openVPNPKI *OpenVPNPKI) secretGetClientCertByLabel(nameValue string) (cert ClientCert, err error) {
+	secret, err := openVPNPKI.secretGetByLabel(nameValue)
+	if err != nil {
+		return
+	}
+
+	cert.CertPEM = bytes.NewBuffer(secret.Data[certFileName])
+	cert.Cert, err = decodeCert(cert.CertPEM.Bytes())
+	if err != nil {
+		return
+	}
+
+	cert.PrivKeyPEM = bytes.NewBuffer(secret.Data[privKeyFileName])
+	cert.PrivKeyRSA, err = decodePrivKey(cert.PrivKeyPEM.Bytes())
+	if err != nil {
+		return
+	}
+
+	return
+}
+
 func (openVPNPKI *OpenVPNPKI) secretGet(name string) (secret *v1.Secret, err error) {
 	secret, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	return
 }
 
+func (openVPNPKI *OpenVPNPKI) secretGetByLabel(nameValue string) (secret *v1.Secret, err error) {
+	secrets, err := openVPNPKI.secretsGetByLabel("name="+nameValue)
+	if err != nil {
+		return
+	}
+
+	if len(secrets.Items) > 1 {
+		err = errors.New(fmt.Sprintf("Found more than one secret with label name=%s", nameValue))
+		return
+	}
+
+	if len(secrets.Items) == 0 {
+		err = errors.New(fmt.Sprintf("Secret not found"))
+		return
+	}
+
+	secret = &secrets.Items[0]
+
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) secretsGetByLabel(label string) (secrets *v1.SecretList, err error) {
+	secrets, err = openVPNPKI.KubeClient.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: label})
+	if err != nil {
+		return
+	}
+
+	if len(secrets.Items) == 0 {
+		log.Debugf("Secrets with label %s not found", label)
+	}
+
+	return
+}
+
 func (openVPNPKI *OpenVPNPKI) secretGetClients() (clientSecrets []ClientSecret, err error) {
-	secrets, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "usage=clientAuth"})
+	secrets, err := openVPNPKI.KubeClient.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "type=clientAuth"})
 
 	for _, secret := range secrets.Items {
 		tmpCertPEM := bytes.NewBuffer(secret.Data[certFileName])
@@ -805,14 +887,72 @@ func (openVPNPKI *OpenVPNPKI) secretGenTaKeyAndDHParam() (err error) {
 	}
 	dhparam, err := ioutil.ReadFile(dhparamPath)
 
-	secretData := map[string]string{
-		"ta.key": string(taKey),
-		"dh.pem": string(dhparam),
+	secretData := map[string][]byte{
+		"ta.key": taKey,
+		"dh.pem": dhparam,
 	}
 
 	err = openVPNPKI.secretCreate(metav1.ObjectMeta{Name: secretDHandTA}, secretData)
 	if err != nil {
 		return
+	}
+
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) secretGetCcd(commonName string) (ccd string) {
+	secret, err := openVPNPKI.secretGetByLabel(commonName)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	for k, _ := range secret.Data {
+		if k == "ccd" {
+			ccd = string(secret.Data["ccd"])
+			return
+		}
+	}
+	return
+}
+
+func (openVPNPKI *OpenVPNPKI) secretUpdateCcd(commonName string, ccd []byte) {
+	secret, err := openVPNPKI.secretGetByLabel(commonName)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	secret.Data["ccd"] = ccd
+
+	err = openVPNPKI.secretUpdate(secret.ObjectMeta, secret.Data)
+	if err != nil {
+		log.Errorf("Secret (%s) update error: %s", secret.Name, err.Error())
+	}
+
+	err = openVPNPKI.updateCcdOnDisk()
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+func (openVPNPKI *OpenVPNPKI) updateCcdOnDisk() (err error) {
+	secrets, err := openVPNPKI.secretsGetByLabel("index.txt=,type=clientAuth")
+	if err != nil {
+		return
+	}
+
+	if _, err := os.Stat(*ccdDir); os.IsNotExist(err) {
+		err = os.MkdirAll(*ccdDir, 0755)
+	}
+
+	for _, secret := range secrets.Items {
+		ccd := secret.Data["ccd"]
+		if len(ccd) > 0 {
+			err = ioutil.WriteFile(fmt.Sprintf("%s/%s", *ccdDir, secret.Labels["name"]), ccd, 0600)
+			if err != nil {
+				log.Error(err)
+			}
+		}
 	}
 
 	return
