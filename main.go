@@ -67,6 +67,7 @@ var (
 	authByPassword           = kingpin.Flag("auth.password", "enable additional password authentication").Default("false").Envar("OVPN_AUTH").Bool()
 	authDatabase             = kingpin.Flag("auth.db", "database path for password authentication").Default("./easyrsa/pki/users.db").Envar("OVPN_AUTH_DB_PATH").String()
 	logLevel                 = kingpin.Flag("log.level", "set log level (trace, debug, info, warn, error)").Default("info").Envar("LOG_LEVEL").String()
+	logFormat                = kingpin.Flag("log.format", "set log format (text, json)").Default("text").Envar("LOG_FORMAT").String()
 	kubernetesBackend        = kingpin.Flag("kubernetes.backend", "use kubernetes secrets for store certificates").Bool()
 
 	certsArchivePath = "/tmp/" + certsArchiveFileName
@@ -81,6 +82,11 @@ var logLevels = map[string]log.Level{
 	"info":  log.InfoLevel,
 	"warn":  log.WarnLevel,
 	"error": log.ErrorLevel,
+}
+
+var logFormats = map[string]log.Formatter {
+	"text": &log.TextFormatter{},
+	"json": &log.JSONFormatter{},
 }
 
 var (
@@ -414,7 +420,7 @@ func main() {
 	kingpin.Parse()
 
 	log.SetLevel(logLevels[*logLevel])
-	log.SetFormatter(&log.JSONFormatter{})
+	log.SetFormatter(logFormats[*logFormat])
 
 	if *kubernetesBackend {
 		err := app.run()
@@ -662,8 +668,8 @@ func (oAdmin *OvpnAdmin) renderClientConfig(username string) string {
 
 		return fmt.Sprintf("%+v", tmp.String())
 	}
-	log.Warnf("WARNING: User \"%s\" not found", username)
-	return fmt.Sprintf("User \"%s\" not found", username)
+	log.Warnf("user \"%s\" not found", username)
+	return fmt.Sprintf("user \"%s\" not found", username)
 }
 
 func (oAdmin *OvpnAdmin) getCcdTemplate() *template.Template {
@@ -1000,7 +1006,7 @@ func (oAdmin *OvpnAdmin) userRevoke(username string) string {
 		oAdmin.clients = oAdmin.usersList()
 		return fmt.Sprintln(shellOut)
 	}
-	log.Infof("User \"%s\" not found", username)
+	log.Infof("user \"%s\" not found", username)
 	return fmt.Sprintf("User \"%s\" not found", username)
 }
 
@@ -1261,8 +1267,8 @@ func getOvpnServerHostsFromKubeApi() ([]OpenvpnServer, error) {
 
 	service, err := clientset.CoreV1().Services(fRead(kubeNamespaceFilePath)).Get(context.TODO(), *openvpnServiceName, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("ERROR: %s", err.Error())
-		return nil, err
+		log.Error(err)
+		return []OpenvpnServer{{Host: "127.0.0.1", Port: "1194", Protocol: "TCP"}}, err
 	}
 
 	log.Tracef("Debug: service from kube api %v", service)
