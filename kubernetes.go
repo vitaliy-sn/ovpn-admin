@@ -210,6 +210,7 @@ func (openVPNPKI *OpenVPNPKI) indexTxtUpdate() (err error) {
 	var indexTxt string
 	for _, secret := range secrets.Items {
 		certPEM := bytes.NewBuffer(secret.Data[certFileName])
+		log.Trace("TRACE:"+secret.Name)
 		cert, err := decodeCert(certPEM.Bytes())
 		if err != nil {
 			return nil
@@ -594,7 +595,7 @@ func (openVPNPKI *OpenVPNPKI) updateCcdOnDisk() (err error) {
 	for _, secret := range secrets.Items {
 		ccd := secret.Data["ccd"]
 		if len(ccd) > 0 {
-			err = ioutil.WriteFile(fmt.Sprintf("%s/%s", *ccdDir, secret.Labels["name"]), ccd, 0600)
+			err = ioutil.WriteFile(fmt.Sprintf("%s/%s", *ccdDir, secret.Labels["name"]), ccd, 0644)
 			if err != nil {
 				log.Error(err)
 			}
