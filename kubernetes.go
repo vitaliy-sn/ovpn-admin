@@ -215,12 +215,14 @@ func (openVPNPKI *OpenVPNPKI) indexTxtUpdate() (err error) {
 			return nil
 		}
 
+		log.Trace(cert.Subject.CommonName)
+
 		if secret.Annotations["revokedAt"] == "" {
-			indexTxt += fmt.Sprintf("%s\t%s\t\t%s\t%s\t%s\n", "V", cert.NotAfter.Format(indexTxtDateFormat), cert.SerialNumber.String(), "unknown", "/CN="+cert.DNSNames[0])
+			indexTxt += fmt.Sprintf("%s\t%s\t\t%s\t%s\t%s\n", "V", cert.NotAfter.Format(indexTxtDateFormat), cert.SerialNumber.String(), "unknown", "/CN="+cert.Subject.CommonName)
 		} else if cert.NotAfter.Before(time.Now()) {
-			indexTxt += fmt.Sprintf("%s\t%s\t\t%s\t%s\t%s\n", "E", cert.NotAfter.Format(indexTxtDateFormat), cert.SerialNumber.String(), "unknown", "/CN="+cert.DNSNames[0])
+			indexTxt += fmt.Sprintf("%s\t%s\t\t%s\t%s\t%s\n", "E", cert.NotAfter.Format(indexTxtDateFormat), cert.SerialNumber.String(), "unknown", "/CN="+cert.Subject.CommonName)
 		} else {
-			indexTxt += fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\n", "R", cert.NotAfter.Format(indexTxtDateFormat), secret.Annotations["revokedAt"], cert.SerialNumber.String(), "unknown", "/CN="+cert.DNSNames[0])
+			indexTxt += fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\n", "R", cert.NotAfter.Format(indexTxtDateFormat), secret.Annotations["revokedAt"], cert.SerialNumber.String(), "unknown", "/CN="+cert.Subject.CommonName)
 		}
 
 	}

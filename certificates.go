@@ -7,15 +7,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	log "github.com/sirupsen/logrus"
+	"errors"
 	"math/big"
 	"time"
 )
 
 // decode certificate from PEM to x509
 func decodeCert(certPEMBytes []byte) (cert *x509.Certificate, err error) {
-	log.Trace(string(certPEMBytes))
-
 	certPem, _ := pem.Decode(certPEMBytes)
 	certPemBytes := certPem.Bytes
 
@@ -29,9 +27,19 @@ func decodeCert(certPEMBytes []byte) (cert *x509.Certificate, err error) {
 
 // decode private key from PEM to RSA format
 func decodePrivKey(privKey []byte) (key *rsa.PrivateKey, err error) {
-	log.Trace(string(privKey))
 	privKeyPem, _ := pem.Decode(privKey)
 	key, err = x509.ParsePKCS1PrivateKey(privKeyPem.Bytes)
+	if err == nil {
+		return
+	}
+
+	tmp, err := x509.ParsePKCS8PrivateKey(privKeyPem.Bytes)
+	if err != nil {
+		err = errors.New("error parse private key")
+		return
+	}
+	key, _ = tmp.(*rsa.PrivateKey)
+
 	return
 }
 
@@ -39,11 +47,19 @@ func decodePrivKey(privKey []byte) (key *rsa.PrivateKey, err error) {
 func genPrivKey() (privKeyPEM *bytes.Buffer, err error) {
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 
+	//privKeyPKCS1 := x509.MarshalPKCS1PrivateKey(privKey)
+
+	privKeyPKCS8, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		return
+	}
+
 	privKeyPEM = new(bytes.Buffer)
 	err = pem.Encode(privKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
+		Bytes: privKeyPKCS8,
 	})
+
 
 	return
 }
