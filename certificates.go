@@ -7,12 +7,15 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	log "github.com/sirupsen/logrus"
 	"math/big"
 	"time"
 )
 
 // decode certificate from PEM to x509
 func decodeCert(certPEMBytes []byte) (cert *x509.Certificate, err error) {
+	log.Trace(string(certPEMBytes))
+
 	certPem, _ := pem.Decode(certPEMBytes)
 	certPemBytes := certPem.Bytes
 
@@ -26,6 +29,7 @@ func decodeCert(certPEMBytes []byte) (cert *x509.Certificate, err error) {
 
 // decode private key from PEM to RSA format
 func decodePrivKey(privKey []byte) (key *rsa.PrivateKey, err error) {
+	log.Trace(string(privKey))
 	privKeyPem, _ := pem.Decode(privKey)
 	key, err = x509.ParsePKCS1PrivateKey(privKeyPem.Bytes)
 	return
