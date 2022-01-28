@@ -25,7 +25,7 @@ const (
 	secretClientTmpl = "openvpn-pki-%s"
 	secretCRL        = "openvpn-pki-crl"
 	secretIndexTxt   = "openvpn-pki-index-txt"
-	secretDHandTA    = "openvpn-dh-and-ta"
+	secretDHandTA    = "openvpn-pki-dh-and-ta"
 	certFileName     = "pem.crt"
 	privKeyFileName  = "pem.key"
 )
